@@ -15,10 +15,7 @@
 <div id="bubbles" aria-hidden="true"></div>
 <main class="login-wrap">
   <div class="card login-card">
-    <h1 class="login-title"><svg class="login-logo" viewBox="0 0 40 40" aria-hidden="true">
-      <defs><radialGradient id="bub" cx="35%" cy="30%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset=".45" stop-color="#cfeeff"/><stop offset="1" stop-color="#8fcdf5"/></radialGradient></defs>
-      <circle cx="14" cy="24" r="10" fill="url(#bub)" stroke="#7cc0ec" stroke-width="1.2"/><circle cx="28" cy="13" r="7" fill="url(#bub)" stroke="#7cc0ec" stroke-width="1.2"/>
-      <circle cx="30" cy="30" r="4.5" fill="url(#bub)" stroke="#7cc0ec" stroke-width="1.2"/></svg>
+    <h1 class="login-title"><img class="login-logo" src="/icon.svg" alt="">
       <span id="login-heading">Podburrow</span></h1>
 
     <div id="login-msg" class="login-msg" role="alert" hidden></div>
@@ -26,7 +23,7 @@
     <p id="login-loading" class="hint">Loading…</p>
 
     <form id="f-signin" class="form" method="post" hidden novalidate>
-      <p class="hint">Sign in to your app.</p>
+      <p class="hint">Sign in to Podburrow.</p>
       <div class="field"><label for="si-user">Name</label>
         <input id="si-user" type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="64"></div>
       <div class="field"><label for="si-pw">Password</label>
@@ -35,13 +32,13 @@
       <label class="cbox"><input type="checkbox" id="si-keep"> Keep me signed in on this device (30 days)</label>
       <button type="submit" class="ok login-go">Sign in</button>
       <p class="hint login-forgot">Forgot the password? On the server, <code>docker exec -it &lt;container&gt; python /app/auth.py reset</code>
-        deletes the account (your settings and keys stay) and prints a setup code to create it again.</p>
+        deletes the account (your shows and episodes stay) and prints a setup code to create it again.</p>
     </form>
 
     <form id="f-code" class="form" method="post" hidden novalidate>
       <p class="hint" id="c-code-d">Type the 6-digit code from your authenticator app. Lost your phone? Type one of your
         recovery codes instead. Lost both? On the server, <code>docker exec -it &lt;container&gt; python /app/auth.py reset</code>
-        deletes the account (settings and keys stay) so you can create it again.</p>
+        deletes the account (shows and episodes stay) so you can create it again.</p>
       <div class="field"><label for="c-code">Code</label>
         <input id="c-code" aria-describedby="c-code-d" type="text" name="one-time-code" autocomplete="one-time-code" inputmode="text" autocapitalize="characters" spellcheck="false" required maxlength="40"></div>
       <div class="login-btns"><button type="submit" class="ok login-go">Continue</button>
@@ -75,7 +72,7 @@
     </div>
 
     <div id="f-broken" hidden>
-      <p>The sign-in file is damaged, so nobody can sign in. On the server, reset it (your settings and keys stay):</p>
+      <p>The sign-in file is damaged, so nobody can sign in. On the server, reset it (your shows and episodes stay):</p>
       <div class="code"><pre><code>docker exec -it &lt;container&gt; python /app/auth.py reset</code></pre></div>
     </div>
 

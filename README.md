@@ -1,113 +1,117 @@
 # Podburrow
 
-Podburrow is a self-hosted podcast downloader. Give it a podcast feed and it keeps the show up to date, downloading every
-episode into a library that Plex reads as music.
+A self-hosted podcast downloader. It follows your shows and files every episode in a library Plex reads as music.
 
-It runs in Docker, has a small web page for adding shows and watching downloads, and keeps its own database and covers
-apart from the media library.
+![The Podburrow library page](docs/images/library.png)
 
-## Contents
+## Why
 
-- [What it is](#what-it-is)
-- [What it does](#what-it-does)
-- [Install](#install)
-- [Using it](#using-it)
-- [Updating](#updating)
-- [Security](#security)
-- [License](#license)
+Podcast hosts delete old episodes and change links, and a downloader takes files from strangers and puts them on your disk.
+Podburrow keeps your own copy, and treats every feed and file as hostile. [See how that was checked](#security).
 
-## What it is
+## Features
 
-Podburrow is a single small server with a worker thread that checks feeds and downloads episodes one at a time. It uses
-Python's standard library plus mutagen for tags, and a SQLite database for shows and episodes. There is no external
-service to run and it never asks Plex for permission: Plex's own "scan automatically when files change" picks up each
-finished file.
+- Search by name, or paste an RSS link
+- Downloads the whole back catalogue, or only new episodes
+- Plex-friendly folders and tags, with one artist per show and one album per year
+- Picks up changed download links, and retries failures with growing delays
+- Pauses if the drive is missing or nearly full, rather than filling the wrong disk
+- Episodes you delete stay deleted
+- Built-in sign-in with authenticator codes, or use your reverse proxy's SSO
+- Moves your shows and files over from Podgrab
+- Runs in a small, read-only, unprivileged container
 
-## What it does
+## Screenshots
 
-It follows the feeds you add and checks them on a schedule. Every episode it has not seen before is queued and
-downloaded, oldest first, with a number that becomes its Plex track number. A show can be added with its whole back
-catalogue or from the newest episode only.
+| | |
+|---|---|
+| ![Search results with Follow buttons](docs/images/search.png) | ![A show's episode list](docs/images/episodes.png) |
+| Find and follow a show | Every episode of a show |
+| ![The sign-in page](docs/images/sign-in.png) | ![The account page](docs/images/account.png) |
+| Built-in sign-in | Two-step codes, recovery codes and sessions |
 
-Files are laid out the way Plex's music library wants them: one folder per show, one folder per year, and inside that
-`NNN - YYYY-MM-DD - Title.ext`. Year folders exist because one album with hundreds of tracks makes Plex slow. Tags say
-artist and album artist are the show, album is the show and year, track is the episode number, genre is Podcast, and
-the date, title and cover are filled in. Album compilation flags and sort tags are removed because they split a show
-into "Various Artists". A `cover.jpg` goes in each year folder and an `artist.jpg` in the show folder.
+<img src="docs/images/phone.png" alt="Podburrow on a phone" width="260">
 
-Downloads are resumable in the sense that a failed or interrupted episode is tried again with a growing delay, up to
-once a day, and it never gives up for good. Podburrow retries network trouble sooner, waits a while between shows when a
-host is in trouble, and pauses when the podcast drive is missing or has less than 20 GB free. When a feed host changes
-an episode's download link, Podburrow picks up the new link instead of retrying a dead one. An episode whose file you
-deleted is marked missing and left alone; it is not downloaded again by itself.
-
-Coming from Podgrab, a migration tool imports the shows you follow and the episodes already on disk, so the library is
-not downloaded a second time. Stop Podburrow before running it: the server holds a lock on the data folder and the tool
-refuses to start while that lock is held. Details are in
-[docs/MIGRATING-FROM-PODGRAB.md](docs/MIGRATING-FROM-PODGRAB.md).
+All screenshots use made-up shows.
 
 ## Install
 
-You need Docker with Compose, a data folder, and a media folder on the podcast drive. Podburrow expects the drive to be
-mounted: put an empty file named `.podcasts-media` in the root of the media folder. If the file is gone, Podburrow assumes
-the drive is not mounted and pauses rather than filling a folder on the system disk.
+You need Docker with Compose, and a media folder on the drive you want to use.
 
-1. Copy `docker-compose.yml` from the repository and set the data and media volume paths. Set `TZ` so dates and year
-   folders follow your local time.
-2. Set `ALLOWED_HOSTS` to the address you will open Podburrow at (it answers only requests for hosts it knows), and set
-   set `HOME_NAMES` to a hostname that resolves to your home's public address. Podburrow then refuses to download from
-   that address, so a feed can't loop back through your router, and downloads wait until the name resolves. Without it
-   that check is off, and the log says so.
-3. Start it with `docker compose up -d`. The web page listens on port 8000 inside the container.
-4. Keep Podburrow on its own Docker network that only your reverse proxy joins, and give it an HTTPS address at the proxy.
-5. Open the address and create the first login.
+1. Download [`docker-compose.yml`](docker-compose.yml) and [`.env.example`](.env.example). Rename the second to `.env`.
+2. In `docker-compose.yml`, point the commented media volume at your folder, and make sure uid 1000 can write to it and to `./data`.
+3. Create the drive marker: `touch /path/to/podcasts/.podcasts-media`. Without it, the app assumes the drive isn't mounted and pauses.
+4. In `.env`, set `TZ`, `ALLOWED_HOSTS` (the address you open it at), `ORIGIN` (your public https address, if it has one) and
+   `HOME_NAMES` (a hostname for your home's public address, so a feed can't loop back through your router).
+5. Start it: `docker compose up -d`
+6. Get the setup code: `docker logs podburrow 2>&1 | grep '^SETUP CODE' | tail -n 1`
+7. Open the address, type the code, and create your account. Then turn on authenticator codes under **Account**.
 
-The settings and reverse proxy notes are in `docker-compose.yml` and `.env.example`.
+Use HTTPS through a reverse proxy for anything beyond your own network.
 
-## Using it
+## Behind an SSO proxy
 
-Add a show with its feed address, or search by name. Episode search sends the text you type to Apple's iTunes API and
-shows the matching podcasts; Podburrow only adds the feed you choose. Nothing else about your library is sent.
+Set `AUTH=proxy` and `TRUSTED_PROXY` to your proxy's container name, share a Docker network with it, and remove the `ports` section.
+Only that proxy can then connect. **The proxy's sign-in becomes your only protection**, so it must cover every path.
+If `TRUSTED_PROXY` is missing, Podburrow uses its own sign-in rather than opening up.
 
-The show page lists episodes and what happened to each: queued, downloading, downloaded, failed, or missing. A show
-can be paused, failed episodes retried, and a show unfollowed; unfollowing leaves the downloaded files in place.
-Checks run every four hours by default and can be set from every 30 minutes to every 24 hours.
+## Moving from Podgrab
 
-Podburrow has its own sign-in by default. If you already run an SSO proxy, set `AUTH=proxy` and point `TRUSTED_PROXY` at
-that proxy instead; Podburrow then relies on the user the proxy has already signed in. Do not set proxy mode without a
-proxy you control in front of it.
+See [docs/MIGRATING-FROM-PODGRAB.md](docs/MIGRATING-FROM-PODGRAB.md).
 
 ## Updating
-
-Pull the new version and recreate the container:
 
 ```sh
 docker compose pull
 docker compose up -d
 ```
 
-Your database, covers and downloaded episodes are kept, and the database is upgraded on start. Back up the data folder
-before a large update.
+Your database, covers and episodes stay. Back up `./data` first.
 
 ## Security
 
-Podburrow is the part of your network that talks to podcast hosts, so its fetching is deliberately narrow. It only fetches
-http and https links on ports 80 and 443, and only to public IPv4 addresses. The address is checked after DNS and again
-on every redirect, the connection is made to the address that was checked, TLS certificates are verified, and links
-back to your own public address are refused.
+Security was planned in from the start, not added at the end, but please read this section as it is: no software is perfectly
+safe, and this project hasn't had a human security audit.
 
-Feeds must use a small set of common encodings, and DOCTYPE and ENTITY declarations are refused. They are parsed in a
-separate process with a hard memory cap, and tags are written by another capped process, so a hostile feed or file
-cannot take the server down with it. Downloads are capped in size and time, written as a `.part` file and renamed into
-place only when complete and tagged. File and folder names are cleaned and length-limited, and every path is kept
-inside the media folder.
+**How it's built**
 
-The web side requires a known Host header and a token header on every change. The app is built to sit on a Docker
-network only your reverse proxy can reach, and the container itself does not need extra permissions. With
-`AUTH=proxy`, only the proxy named in `TRUSTED_PROXY` is believed about who is signed in.
+- Feeds and audio files are treated as hostile. They're parsed in separate processes with memory and CPU limits.
+- Downloads only reach public IPv4 addresses on ports 80 and 443, checked after DNS and on every redirect.
+- Nothing works without signing in, except the sign-in page and a health check. Passwords use scrypt, with a common-password
+  blocklist, growing waits, and optional authenticator and recovery codes.
+- The page refuses inline and outside scripts, and requests from other sites are refused.
+- The one dependency is [mutagen](https://github.com/quodlibet/mutagen), pinned by hash. The base image and CI actions are pinned too.
 
-Security review is still in progress. It will be reviewed by AI agents, not a paid audit.
+**How it was tested**
+
+- 307 automated tests run on every push, using local servers and mocks. They include hostile feeds, private-address tricks, path
+  escapes, a full disk, a missing drive, crashes, forged headers, cross-site requests and the full sign-in flow.
+- As a spot check, five security checks were deliberately broken, and the tests caught all five.
+- Five independent AI review agents each attacked one area, proving findings with working examples. Two more re-checked the fixes.
+
+**What the reviews found**
+
+They found real bugs, including two rated high: the first image didn't contain the app at all, and a hostile feed host could hang
+the download worker. All reported findings were fixed. The full list is in
+[docs/SECURITY-REVIEW.md](docs/SECURITY-REVIEW.md).
+
+**What you should know**
+
+- **Written with AI.** The code, tests and reviews were produced with AI models (Claude and DeepSeek), directed by one person.
+  AI reviewers can miss things, including the same things the AI authors missed.
+- **Not a paid audit.** No human security professional has reviewed it.
+- **Some things weren't tested**, including most reverse proxies and running on arm64. They're listed in the review.
+
+Read [THREAT-MODEL.md](THREAT-MODEL.md) for what it does and doesn't defend against, and [TESTING.md](TESTING.md) to run the tests yourself.
+To report a problem privately, see [SECURITY.md](SECURITY.md).
+
+## What leaves your server
+
+- Requests to the feeds and hosts you follow
+- Search text and artwork requests, sent to Apple's iTunes service when you search
+
+Nothing else. There's no telemetry.
 
 ## License
 
-MIT
+[MIT](LICENSE)

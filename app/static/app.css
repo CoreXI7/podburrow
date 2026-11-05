@@ -1,3 +1,4 @@
+:root{color-scheme:dark}
 :root{--bg:#07070d;--fg:#ecebff;--mute:#9a97c2;--dim:#7e7aa8;--card:rgba(20,18,38,.58);--line:rgba(160,140,255,.14);
   --p:#a855f7;--c:#22d3ee;--k:#f472b6;--g:#4ade80;--y:#fbbf24;--red:#f87171;--r:22px}
 *{box-sizing:border-box;margin:0}
