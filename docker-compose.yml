@@ -1,0 +1,55 @@
+# podburrow: a self-hosted podcast downloader. It follows podcast feeds, downloads every episode and files it straight into
+# a Plex-friendly music library (/media/<Show>/<YYYY>/<NNN> - <date> - <title>.mp3), all managed from its web page.
+#
+# Setup:  cp .env.example .env   (then fill it in), and:   docker compose up -d
+# podburrow is meant to sit behind a reverse proxy: the proxy adds HTTPS and is the only way in from outside.
+
+services:
+  podburrow:
+    container_name: podburrow
+    # The ready-made image. To pin a version, replace :latest with a release tag or a digest, e.g.
+    #   image: ghcr.io/corexi7/podburrow:1.2.3        or   ghcr.io/corexi7/podburrow@sha256:<digest>
+    image: ghcr.io/corexi7/podburrow:latest
+    restart: unless-stopped
+    user: "1000:1000"              # your user's uid:gid: ./data must be writable by it (and the media folder too)
+    read_only: true                # the app never writes to its own filesystem
+    tmpfs:
+      - /tmp                       # scratch space; the root filesystem is read-only
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m                # a bug can't eat the host's RAM (the container restarts instead)
+    pids_limit: 64
+    logging:                       # keep logs from filling the disk
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      TZ: "${TZ:-UTC}"             # your local timezone (IANA name): episodes are dated and filed per year in it
+      PORT: "8000"                 # the port inside the container; the publish line below maps it
+      # Space-separated Host headers it answers to: add the hostname you open podburrow on (plus :port if not 80/443).
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-localhost:8000 127.0.0.1:8000}"
+      ORIGIN: "${ORIGIN:-}"        # your public https address
+      HOME_NAMES: "${HOME_NAMES:-}"  # optional, see the README
+      TRUSTED_PROXY: "${TRUSTED_PROXY:-}"   # behind a reverse proxy, name it here, in either AUTH mode
+      AUTH: "${AUTH:-login}"       # login = podburrow's own sign-in page.
+      # AUTH=proxy: no sign-in page, your reverse proxy's SSO protects it instead. Set TRUSTED_PROXY to the proxy's container
+      # name: only it may connect. Remove the ports section below then, and share a Docker network with the proxy.
+      PYTHONDONTWRITEBYTECODE: "1" # read-only root filesystem: don't try to write __pycache__ next to the code
+    volumes:
+      - ./data:/data                          # database, covers, settings (must be writable by uid 1000)
+      # The library: point it at a real folder on a big drive. Must be writable by uid 1000 and contain the file
+      # ".podcasts-media" (a marker, so the app can tell "drive not mounted" from "no episodes yet").
+      # - /path/to/podcasts:/media
+    ports:
+      # Loopback only, for trying it on this machine. With a reverse proxy, use a shared Docker network and remove this.
+      # (Publishing on 0.0.0.0:8000 instead would skip that protection.)
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+__import__('os').environ.get('PORT','8000')+'/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

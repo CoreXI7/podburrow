@@ -1,0 +1,50 @@
+# Runs the tests and checks that the image builds and starts, on every push to main and every pull request.
+# release.yml runs this too before it publishes an image.
+# Actions are pinned to full commit hashes (the comment says which release); Dependabot proposes updates.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install the one dependency
+        run: pip install --require-hashes -r requirements.txt
+      - name: Run the tests
+        run: sh tests/run.sh
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the image
+        run: docker build -t podburrow:ci .
+      - name: Start it hardened and check it answers and prints a setup code
+        run: |
+          mkdir -p data media && touch media/.podcasts-media && sudo chown -R 1000:1000 data media
+          docker run -d --name app --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp \
+            -e ALLOWED_HOSTS=localhost:8000 -v "$PWD/data:/data" -v "$PWD/media:/media" podburrow:ci
+          for i in $(seq 30); do
+            docker exec app python3 -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)" && break
+            [ "$i" = 30 ] && { echo "it never answered /health"; docker logs app; exit 1; }
+            sleep 1
+          done
+          docker logs app 2>&1 | grep -q '^SETUP CODE' || { echo "no setup code in the log"; docker logs app; exit 1; }

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Sign in · Podburrow</title>
+
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="stylesheet" href="/login.css">
+
+
+</head>
+<body class="settings login-page">
+<div id="bubbles" aria-hidden="true"></div>
+<main class="login-wrap">
+  <div class="card login-card">
+    <h1 class="login-title"><svg class="login-logo" viewBox="0 0 40 40" aria-hidden="true">
+      <defs><radialGradient id="bub" cx="35%" cy="30%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset=".45" stop-color="#cfeeff"/><stop offset="1" stop-color="#8fcdf5"/></radialGradient></defs>
+      <circle cx="14" cy="24" r="10" fill="url(#bub)" stroke="#7cc0ec" stroke-width="1.2"/><circle cx="28" cy="13" r="7" fill="url(#bub)" stroke="#7cc0ec" stroke-width="1.2"/>
+      <circle cx="30" cy="30" r="4.5" fill="url(#bub)" stroke="#7cc0ec" stroke-width="1.2"/></svg>
+      <span id="login-heading">Podburrow</span></h1>
+
+    <div id="login-msg" class="login-msg" role="alert" hidden></div>
+    <p id="login-wait" class="login-wait" aria-hidden="true" hidden></p>
+    <p id="login-loading" class="hint">Loading…</p>
+
+    <form id="f-signin" class="form" method="post" hidden novalidate>
+      <p class="hint">Sign in to your app.</p>
+      <div class="field"><label for="si-user">Name</label>
+        <input id="si-user" type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="64"></div>
+      <div class="field"><label for="si-pw">Password</label>
+        <div class="pw-row"><input id="si-pw" name="password" type="password" autocomplete="current-password" required maxlength="1024">
+          <button type="button" class="ibtn pw-show" data-show="si-pw" aria-label="Show the password">Show</button></div></div>
+      <label class="cbox"><input type="checkbox" id="si-keep"> Keep me signed in on this device (30 days)</label>
+      <button type="submit" class="ok login-go">Sign in</button>
+      <p class="hint login-forgot">Forgot the password? On the server, <code>docker exec -it &lt;container&gt; python /app/auth.py reset</code>
+        deletes the account (your settings and keys stay) and prints a setup code to create it again.</p>
+    </form>
+
+    <form id="f-code" class="form" method="post" hidden novalidate>
+      <p class="hint" id="c-code-d">Type the 6-digit code from your authenticator app. Lost your phone? Type one of your
+        recovery codes instead. Lost both? On the server, <code>docker exec -it &lt;container&gt; python /app/auth.py reset</code>
+        deletes the account (settings and keys stay) so you can create it again.</p>
+      <div class="field"><label for="c-code">Code</label>
+        <input id="c-code" aria-describedby="c-code-d" type="text" name="one-time-code" autocomplete="one-time-code" inputmode="text" autocapitalize="characters" spellcheck="false" required maxlength="40"></div>
+      <div class="login-btns"><button type="submit" class="ok login-go">Continue</button>
+        <button type="button" class="ibtn" id="c-restart">Start over</button></div>
+    </form>
+
+    <form id="f-setup" class="form" method="post" hidden novalidate>
+      <p class="hint">Create the account that signs in to this app. To prove it's you setting it up, you need the
+        <b>setup code</b> from the container's log:</p>
+      <div class="code"><pre><code>docker logs &lt;container&gt; 2&gt;&amp;1 | grep "^SETUP CODE" | tail -n 1</code></pre></div>
+      <div class="field"><label for="su-code">Setup code</label>
+        <input id="su-code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="40" aria-describedby="su-code-d">
+        <small id="su-code-d">Like ABCDE-FGHJK-LMNPQ-RSTUV-WXYZ2. A new one appears in the log every time the container starts:
+          only the newest works. (After <code>auth.py reset</code> or <code>setup-code</code>: the one that command printed.)</small></div>
+      <div class="field"><label for="su-user">Name</label>
+        <input id="su-user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="64"></div>
+      <div class="field"><label for="su-pw">Password</label>
+        <div class="pw-row"><input id="su-pw" type="password" autocomplete="new-password" required aria-describedby="su-pw-d">
+          <button type="button" class="ibtn pw-show" data-show="su-pw" aria-label="Show the password">Show</button></div>
+        <small id="su-pw-d">At least <span class="pw-min">15</span> characters. A few random words are easy to remember and hard to guess.
+          Your password manager can make one.</small></div>
+      <div class="field"><label for="su-pw2">The password again</label>
+        <input id="su-pw2" type="password" autocomplete="new-password" required></div>
+      <label class="cbox"><input type="checkbox" id="su-keep"> Keep me signed in on this device (30 days)</label>
+      <button type="submit" class="ok login-go">Create the account</button>
+    </form>
+
+    <div id="f-notice" hidden>
+      <div id="notice-text" tabindex="-1"></div>
+      <button type="button" class="ok login-go" id="notice-go" aria-describedby="notice-text">Continue</button>
+    </div>
+
+    <div id="f-broken" hidden>
+      <p>The sign-in file is damaged, so nobody can sign in. On the server, reset it (your settings and keys stay):</p>
+      <div class="code"><pre><code>docker exec -it &lt;container&gt; python /app/auth.py reset</code></pre></div>
+    </div>
+
+    <p id="login-http" class="hint login-http" hidden></p>
+    <p id="login-proxy" class="hint login-http" hidden>AUTH: proxy is set in docker-compose.yml, but without TRUSTED_PROXY
+      nothing guarantees your proxy's sign-in is in front, so Podburrow's own sign-in is on.</p>
+  </div>
+</main>
+<script src="/js/login.js"></script>
+</body>
+</html>

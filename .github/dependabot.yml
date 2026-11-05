@@ -1,0 +1,14 @@
+# Proposes updates as pull requests (CI runs on each): the pinned Actions monthly, once a release is two weeks old
+# (a hijacked release is usually caught within days); the image's Python base weekly, without waiting (security fixes).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

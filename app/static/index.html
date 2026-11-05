@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podburrow</title>
+<meta name="theme-color" content="#07070d">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="favicon.ico">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="aurora"></div><div class="grid-bg"></div>
+<header class="top">
+  <span class="logo">~/<em>podburrow</em><span class="cur"></span></span>
+  <div class="right">
+    <span class="activity" id="activity"><span class="dot"></span>…</span>
+    <button class="btn sm" id="accBtn" title="Account and security" aria-label="Account">Account</button>
+    <button class="btn sm" id="checkBtn" title="Check every feed for new episodes now" aria-label="Check now">⟳ <span class="lbl">Check now</span></button>
+    <button class="btn sm" id="setBtn" title="Settings" aria-label="Settings">⚙</button>
+  </div>
+</header>
+<main>
+  <section class="stats" id="stats"></section>
+  <form class="bar" id="addForm" autocomplete="off">
+    <input class="search" id="q" placeholder="Search, or paste an RSS link" aria-label="Search or RSS link" maxlength="1000">
+    <button class="btn pri" type="submit">Find</button>
+  </form>
+  <p class="hint">queued = waiting · not downloaded = older episode you skipped · deleted from disk = removed in Plex (stays deleted; Episodes → Download brings it back)</p>
+  <section class="results" id="results"></section>
+  <section class="shows" id="shows"></section>
+</main>
+<dialog id="dlg" aria-labelledby="dlgTitle"><div class="dlg" id="dlgBody"></div></dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
