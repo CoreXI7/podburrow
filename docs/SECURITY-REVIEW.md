@@ -43,6 +43,14 @@ Earlier tests also found episode dates going into the page unescaped, an empty f
 
 The fifth reviewer also scanned the code and git history for personal data before publishing.
 
+## Later changes
+
+**Conditional feed checks** (unchanged feeds answer 304 and aren't downloaded again). Five reviews: three AI agents (outbound
+fetches, state logic, tests and privacy) and two smaller models. Nothing above Low. Fixed: a wrong clock could stop the daily
+full fetch, a 304 after a failed check could hide its error, a host's `ETag: *` would have matched every version, and *Check
+now* now always fetches in full. Left as is: the stored ETag is also sent on redirect hops to another host. The redirecting
+host already controls where it sends us, and the value is a cache tag, not a secret.
+
 ## What wasn't tested
 
 - A security audit by a human

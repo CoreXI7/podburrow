@@ -57,6 +57,7 @@ DEFAULTS = {"check_minutes": 240, "new_show": "all"}           # new_show: "all"
 lock = threading.RLock()     # one writer at a time; sqlite is opened per call
 check_now = threading.Event()  # "check every feed now" (Check now, a new show)
 queue_now = threading.Event()  # "look at the download queue now" (retry, resume, ...)
+full_now = threading.Event()   # the user pressed Check now: fetch every feed in full (no 304), in case a host's ETags are wrong
 status = {"state": "idle", "detail": "", "progress": 0.0, "since": 0}
 
 
@@ -87,7 +88,8 @@ def init_db():
         CREATE INDEX IF NOT EXISTS ep_show_done ON episodes(show_id, done_at);
         """)
         for table, col, decl in (("shows", "checking", "INTEGER DEFAULT 0"), ("episodes", "next_try", "REAL DEFAULT 0"),
-                                 ("episodes", "net_fails", "INTEGER DEFAULT 0")):
+                                 ("episodes", "net_fails", "INTEGER DEFAULT 0"), ("shows", "etag", "TEXT DEFAULT ''"),
+                                 ("shows", "modified", "TEXT DEFAULT ''"), ("shows", "fetched_at", "REAL DEFAULT 0")):
             if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:   # older databases
                 c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
         for k, v in DEFAULTS.items():
@@ -220,6 +222,10 @@ class Response:
     def __init__(self, r, conn, url, guard):
         self.r, self.conn, self.url, self.guard = r, conn, url, guard
 
+    @property
+    def status(self):
+        return self.r.status
+
     def header(self, k):
         return self.r.getheader(k)
 
@@ -246,9 +252,23 @@ class Response:
         self.r.close(); self.conn.close()
 
 
-def fetch(url, timeout=30, total=120, accept="*/*"):
-    """GET url, following up to 8 redirects; every hop must be http(s) to a public IPv4 address. Caller closes."""
+def validator(v):
+    """An ETag / Last-Modified value from a feed host, safe to send back: printable ASCII, capped; anything else is dropped."""
+    v = v if isinstance(v, str) else ""
+    ok = len(v) <= 200 and re.fullmatch(r"[\x21-\x7e][\x20-\x7e]*", v) and v.strip() != "*"   # "*" would match any version
+    return v if ok else ""
+
+
+def fetch(url, timeout=30, total=120, accept="*/*", validators=None):
+    """GET url, following up to 8 redirects; every hop must be http(s) to a public IPv4 address. Caller closes.
+    validators ({"etag", "modified"}) makes it a conditional GET: a 304 then comes back as a Response too (.status)."""
     deadline = time.monotonic() + total
+    cond = {}
+    if validators:
+        if validator(validators.get("etag")):
+            cond["If-None-Match"] = validator(validators["etag"])
+        if validator(validators.get("modified")):
+            cond["If-Modified-Since"] = validator(validators["modified"])
     for _ in range(9):
         u = urllib.parse.urlsplit(url)
         if u.scheme not in ("http", "https") or not u.hostname:
@@ -264,7 +284,7 @@ def fetch(url, timeout=30, total=120, accept="*/*"):
         path = urllib.parse.quote(u.path or "/", safe="/%:@!$&'()*+,;=~-._") + ("?" + urllib.parse.quote(u.query, safe="=&%+,;:@/?!$'()*~-._") if u.query else "")
         guard = Guard(conn, deadline)
         try:
-            conn.request("GET", path, headers={"User-Agent": UA, "Accept": accept, "Accept-Encoding": "identity"})
+            conn.request("GET", path, headers={"User-Agent": UA, "Accept": accept, "Accept-Encoding": "identity", **cond})
             r = conn.getresponse()
         except ssl.SSLCertVerificationError as e:
             guard.cancel(); conn.close()
@@ -284,6 +304,8 @@ def fetch(url, timeout=30, total=120, accept="*/*"):
                 raise Blocked("redirect without a location")
             url = urllib.parse.urljoin(url, loc)
             continue
+        if r.status == 304 and cond:                            # "not changed since": only when we asked
+            return Response(r, conn, url, guard)
         if r.status != 200:
             guard.cancel(); r.close(); conn.close()
             if r.status in (429, 500, 502, 503, 504):
@@ -535,7 +557,7 @@ def refresh_links(c, sid, eps):
                          status=CASE WHEN status='failed' THEN 'queued' ELSE status END WHERE id=?""", (e["audio_url"], r["id"]))
 
 
-def check_show(sid):
+def check_show(sid, full=False):
     with db() as c:
         s = c.execute("SELECT * FROM shows WHERE id=?", (sid,)).fetchone()
     if not s:
@@ -545,24 +567,38 @@ def check_show(sid):
     err = ""
     n = 0
     try:
-        resp = fetch(s["feed_url"], accept="application/rss+xml, application/xml, text/xml, */*")
-        final = resp.url
-        show, eps = parse_feed_safe(read_capped(resp, FEED_MAX), final)
-        with lock, db() as c:
-            n = store_episodes(c, sid, eps, queue=True, limit=NEW_PER_CHECK)
-            if show["image_url"]:
-                c.execute("UPDATE shows SET image_url=? WHERE id=?", (show["image_url"], sid))
+        # unchanged feeds answer 304 with no body (big feeds are ~10 MB); a full fetch at least daily, in case a host's
+        # validators are wrong (it also refreshes download links)
+        fresh = not full and 0 <= time.time() - (s["fetched_at"] or 0) < 86400  # (a future value from a wrong clock isn't fresh)
+        resp = fetch(s["feed_url"], accept="application/rss+xml, application/xml, text/xml, */*",
+                     validators={"etag": s["etag"], "modified": s["modified"]} if fresh else None)
+        image = s["image_url"]
+        if resp.status == 304:
+            resp.close()
+        else:
+            final, etag, modified = resp.url, validator(resp.header("ETag")), validator(resp.header("Last-Modified"))
+            show, eps = parse_feed_safe(read_capped(resp, FEED_MAX), final)
+            with lock, db() as c:
+                n = store_episodes(c, sid, eps, queue=True, limit=NEW_PER_CHECK)
+                if show["image_url"]:
+                    image = show["image_url"]
+                    c.execute("UPDATE shows SET image_url=? WHERE id=?", (image, sid))
+                if n >= NEW_PER_CHECK:                          # the rest must come with the next check: no 304 for it
+                    etag = modified = ""
+                c.execute("UPDATE shows SET etag=?, modified=?, fetched_at=? WHERE id=?", (etag, modified, time.time(), sid))
         if n >= NEW_PER_CHECK:
             err = f"over {NEW_PER_CHECK} new episodes in one check: the rest come with the next checks"
         if not cover_bytes(sid):
-            save_cover(sid, show["image_url"] or s["image_url"])
+            save_cover(sid, image)
     except (Blocked, Offline, ET.ParseError) as e:
         err = str(e)[:300]
     except Exception as e:
         traceback.print_exc()
         err = f"{type(e).__name__}"
+    refetch = bool(err) and n < NEW_PER_CHECK                 # a failed check: the next one is a full fetch (no 304 hiding it)
     with lock, db() as c:
-        c.execute("UPDATE shows SET checking=0, last_check=?, last_error=? WHERE id=?", (time.time(), err, sid))
+        c.execute("UPDATE shows SET checking=0, last_check=?, last_error=?, fetched_at=CASE WHEN ? THEN 0 ELSE fetched_at END "
+                  "WHERE id=?", (time.time(), err, refetch, sid))
 
 
 def save_cover(sid, url):
@@ -798,11 +834,13 @@ def worker():
         try:
             if time.time() - last_full >= setting("check_minutes") * 60 or check_now.is_set():
                 check_now.clear()
+                full = full_now.is_set()
+                full_now.clear()
                 with db() as c:
                     todo = [(r["id"], r["title"]) for r in c.execute("SELECT id, title FROM shows WHERE paused=0 ORDER BY title")]
                 for sid, title in todo:
                     set_status("checking", title)
-                    check_show(sid)
+                    check_show(sid, full)
                 mark_missing()
                 last_full = time.time()
             queue_now.clear()
@@ -916,7 +954,7 @@ def act(body):
         mode = body.get("mode") if body.get("mode") in ("all", "new") else None
         return {"id": add_show(url, mode)}
     if a == "check":
-        check_now.set(); queue_now.set(); return {}
+        full_now.set(); check_now.set(); queue_now.set(); return {}
     if a not in ("pause", "remove", "retry", "retry_all", "get_all", "settings"):
         raise Blocked("unknown action")
     sid = 0
