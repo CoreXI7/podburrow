@@ -127,6 +127,20 @@ class B_Account(unittest.TestCase):
         self.assertTrue(any(req("POST", "/api/login", {"user": "owner", "password": "still wrong"})[0] == 429 for _ in range(4)))
         authweb.THROTTLE.__init__()
 
+    def test_i2_ten_wrong_tries_sign_a_session_out(self):
+        forgive()
+        cook = cookie_of(req("POST", "/api/login", {"user": "owner", "password": self.PW})[3])
+        out = []
+        for i in range(12):
+            authweb.THROTTLE.__init__()
+            authweb._session_tries.update({k: (v[0], 0) for k, v in authweb._session_tries.items()})   # (skip the waits)
+            out.append(req("POST", "/api/account/password", {"password": f"wrong-password-{i:02d}", "new": self.PW + "-2"}, cook)[0])
+            if i == 9:
+                self.assertEqual(req("GET", "/api/state", cookie=cook)[0], 401, "the 10th wrong try signs it out at once")
+        self.assertEqual(out[:9], [403] * 9)
+        self.assertEqual(out[9:], [401, 401, 401])
+        forgive()
+
     def test_j_logout_ends_session(self):
         forgive()
         s = req("POST", "/api/login", {"user": "owner", "password": self.PW})
