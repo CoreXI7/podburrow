@@ -1142,7 +1142,7 @@ class Handler(authweb.SignIn, http.server.BaseHTTPRequestHandler):
             return
         if authweb.AUTH == "login" and (path in authweb.PUBLIC_POST or path.startswith("/api/account/")):
             try:
-                return self.auth_post(path)
+                return self.auth_post(path, self.json_body(8192))
             except authweb.Invalid as e:
                 return self.send(400, {"error": str(e)})
         if self.headers.get("X-Podburrow") != "1" or path != "/api/act":

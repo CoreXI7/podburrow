@@ -4,6 +4,7 @@ T = tempfile.mkdtemp()
 os.environ.update(DATA=T, MEDIA=T, AUTH="login", ALLOWED_HOSTS="127.0.0.1:18095", TRUSTED_PROXY="", ORIGIN="")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 import server, authweb, auth
+from signin_core import web
 
 HOST = "127.0.0.1:18095"
 srv = None
@@ -49,7 +50,7 @@ def forgive():
     """Clears the wrong-try waits, so one test's failures don't slow the next."""
     authweb.THROTTLE.__init__()
     authweb.ACCOUNT.update(lambda x: x.update(failures=0, last_fail=0))
-    authweb._session_tries.clear()
+    web._session_tries.clear()
 
 
 class A_NoAccount(unittest.TestCase):
@@ -133,7 +134,7 @@ class B_Account(unittest.TestCase):
         out = []
         for i in range(12):
             authweb.THROTTLE.__init__()
-            authweb._session_tries.update({k: (v[0], 0) for k, v in authweb._session_tries.items()})   # (skip the waits)
+            web._session_tries.update({k: (v[0], 0) for k, v in web._session_tries.items()})   # (skip the waits)
             out.append(req("POST", "/api/account/password", {"password": f"wrong-password-{i:02d}", "new": self.PW + "-2"}, cook)[0])
             if i == 9:
                 self.assertEqual(req("GET", "/api/state", cookie=cook)[0], 401, "the 10th wrong try signs it out at once")
